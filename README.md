@@ -166,3 +166,33 @@ L'exécution s'observe à deux niveaux :
    [Ligne 1] PartitionKey: Materiel | RowKey: a8ba6be2-5848-4907-9931-e1fccffa878c
             Produit: Clavier | Prix: 49.99€ | Traité le: 2026-09-10T10:01:38.396Z
    ```
+
+   ---
+
+## 8. Analyse en couches techniques (Le "Mille-Feuille" FaaS)
+
+Conformément à la décomposition architecturale du cloud computing (FaaS / Serverless), voici la répartition des responsabilités et l'analyse des points de fragilité de chaque couche :
+
+| Couche technique | Composant dans la solution | Responsabilité (Équipe vs Cloud) | Points de fragilité identifiés |
+| :--- | :--- | :--- | :--- |
+| **Code applicatif** | `httpTrigger.js`, `queueTrigger.js` | **Équipe de développement** | Erreur de parsing du payload JSON, boucle infinie ou crash non géré. |
+| **Configuration (Glue)** | `host.json`, Bindings natifs | **Équipe de développement** | Chaîne de connexion erronée, incohérence de version de bundle. |
+| **Middleware & Message Broker** | Azure Queue Storage (Azurite) | **Fournisseur Cloud** (managé) | *Poison messages* (messages invalides bloquants), saturation du quota de file. |
+| **Persistance / Stockage** | Azure Table Storage (Azurite) | **Fournisseur Cloud** (managé) | Mauvais choix de `PartitionKey` créant un goulet d'étranglement (*hot partition*). |
+| **Environnement d'exécution** | Node.js v4 runtime (Functions Host) | **Fournisseur Cloud** (managé) | **Cold start** (latence d'instanciation à froid), fuite mémoire sur exécutions répétées. |
+| **OS & Conteneur** | Conteneur anonyme instancié à la volée | **Fournisseur Cloud** | Timeout d'exécution imposé (10 min max), contrainte stricte de *statelessness*. |
+| **Réseau & Infrastructure** | VNet, ports d'écoute, serveurs physiques | **Fournisseur Cloud** | Latence réseau inter-services, coûts du trafic sortant (*egress*), quotas régionaux. |
+
+---
+
+## 9. Analyse critique : Limites du modèle Serverless & Émulation locale
+
+### Limites intrinsèques du Serverless
+- **Cold start** : Lors d'un pic après une période d'inactivité, le fournisseur doit allouer un conteneur et démarrer le runtime Node.js, ce qui introduit une latence de plusieurs secondes sur le premier appel.
+- **Statelessness** : Les fonctions ne partagent aucune mémoire persistante. Tout état doit transiter par un composant externe (Storage, Cache, BDD), ce qui reporte la pression de montée en charge sur la base de données.
+- **Modèle de coût (FinOps)** : Très économique pour un usage sporadique ou par vagues (facturation à la milliseconde), le serverless devient significativement plus cher qu'une instance réservée (PaaS/IaaS) si la charge applicative est continue 24h/24.
+
+### Émulation locale (Azurite) vs Exécution Cloud réelle
+- **Comportement réseau** : En local sur `127.0.0.1`, la latence est quasi nulle. En production, les appels HTTP, Queue et Table traversent le réseau cloud (VNet/Internet) et génèrent latence et coûts réseau (*egress*).
+- **Scalabilité et concurrence** : Azurite est un processus mono-machine qui traite les flux de manière séquentielle. En cloud réel, Azure Functions scale automatiquement horizontalement en instanciant des dizaines de workers en parallèle.
+- **Résilience et quotas** : L'environnement local ne simule ni les throttlings (limites de requêtes/seconde imposées par Azure), ni les mécanismes de réplication multi-zones en cas de sinistre.
