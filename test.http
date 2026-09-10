@@ -1,0 +1,19 @@
+### Test 1 : Commande de matériel
+POST http://localhost:7071/api/httpTrigger
+Content-Type: application/json
+
+{
+    "category": "Informatique",
+    "produit": "Écran 144Hz",
+    "prix": 189.99
+}
+
+### Test 2 : Commande de périphérique
+POST http://localhost:7071/api/httpTrigger
+Content-Type: application/json
+
+{
+    "category": "Gaming",
+    "produit": "Souris sans fil",
+    "prix": 69.50
+}
